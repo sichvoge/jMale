@@ -3,6 +3,13 @@ package de.jmale.core.tools;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import de.jmale.core.data.DataSet;
+import de.jmale.core.observability.MetricsCollector;
+import de.jmale.core.observability.TracingUtils;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Scope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.*;
 
 /**
@@ -16,6 +23,8 @@ import java.io.*;
  * @since 1.0
  */
 public class CSVFileImporter implements FileImporter {
+    private static final Logger logger = LoggerFactory.getLogger(CSVFileImporter.class);
+
     /**
      * Default seperator used to split the attributes in a CSV file.
      */
@@ -78,11 +87,34 @@ public class CSVFileImporter implements FileImporter {
      *  empty
      */
     public final DataSet doImport(String filename) throws IOException {
-        if(Strings.isNullOrEmpty(filename)) {
-            throw new IllegalArgumentException("filename cannot be empty nor null");
-        }
+        logger.info("Starting CSV import from filename: {}", filename);
+        long startTime = System.currentTimeMillis();
 
-        return this.doImport(new File(filename));
+        Span span = TracingUtils.spanBuilder("csv_import_by_filename").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            if(Strings.isNullOrEmpty(filename)) {
+                throw new IllegalArgumentException("filename cannot be empty nor null");
+            }
+
+            TracingUtils.addAttribute("filename", filename);
+            DataSet result = this.doImport(new File(filename));
+
+            double durationSeconds = (System.currentTimeMillis() - startTime) / 1000.0;
+            MetricsCollector.getInstance().recordFileImport("csv", durationSeconds, "success");
+            logger.info("CSV import completed successfully for file: {}", filename);
+            span.setStatus(StatusCode.OK);
+
+            return result;
+        } catch (Exception e) {
+            double durationSeconds = (System.currentTimeMillis() - startTime) / 1000.0;
+            MetricsCollector.getInstance().recordFileImport("csv", durationSeconds, "error");
+            logger.error("CSV import failed for file: {}", filename, e);
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+            span.recordException(e);
+            throw e;
+        } finally {
+            span.end();
+        }
     }
 
     /**
@@ -95,31 +127,64 @@ public class CSVFileImporter implements FileImporter {
      * @throws NullPointerException will be thrown if parameter is not provided
      */
     public final DataSet doImport(File file) throws IOException {
-        Preconditions.checkNotNull(file);
+        logger.info("Starting CSV import from file: {}", file.getName());
+        long startTime = System.currentTimeMillis();
 
-        if(!file.exists()) {
-            throw new FileNotFoundException("file " + file.getName() + " not found");
+        Span span = TracingUtils.spanBuilder("csv_import_by_file").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            Preconditions.checkNotNull(file);
+
+            TracingUtils.addAttribute("file_name", file.getName());
+            TracingUtils.addAttribute("file_size", file.length());
+            TracingUtils.addAttribute("separator", seperator);
+            TracingUtils.addAttribute("with_header", withHeader);
+
+            if(!file.exists()) {
+                throw new FileNotFoundException("file " + file.getName() + " not found");
+            }
+
+            if(!file.isFile()) {
+                throw new java.io.IOException("provided file is not a file");
+            }
+
+            FileInputStream fstream = new FileInputStream(file);
+            DataInputStream in = new DataInputStream(fstream);
+            BufferedReader br = new BufferedReader(new InputStreamReader(in));
+
+            boolean ignoreFirstLine = withHeader;
+            int lineCount = 0;
+
+            String strLine;
+            while ((strLine = br.readLine()) != null)   {
+                lineCount++;
+                String[] columns = strLine.split(seperator);
+                double[] attributes = new double[columns.length];
+
+                // TODO: adding attributes to data instance
+            }
+
+            TracingUtils.addAttribute("lines_processed", lineCount);
+            logger.info("Processed {} lines from CSV file: {}", lineCount, file.getName());
+
+            double durationSeconds = (System.currentTimeMillis() - startTime) / 1000.0;
+            MetricsCollector.getInstance().recordFileImport("csv", durationSeconds, "success");
+            span.setStatus(StatusCode.OK);
+
+            // Close resources
+            br.close();
+            in.close();
+            fstream.close();
+
+            throw new UnsupportedOperationException("Not supported yet.");
+        } catch (Exception e) {
+            double durationSeconds = (System.currentTimeMillis() - startTime) / 1000.0;
+            MetricsCollector.getInstance().recordFileImport("csv", durationSeconds, "error");
+            logger.error("CSV import failed for file: {}", file.getName(), e);
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+            span.recordException(e);
+            throw e;
+        } finally {
+            span.end();
         }
-
-        if(!file.isFile()) {
-            throw new java.io.IOException("provided file is not a file");
-        }
-
-        FileInputStream fstream = new FileInputStream(file);
-
-	DataInputStream in = new DataInputStream(fstream);
-	BufferedReader br = new BufferedReader(new InputStreamReader(in));
-
-	boolean ignoreFirstLine = withHeader;
-
-        String strLine;
-	while ((strLine = br.readLine()) != null)   {
-            String[] columns = strLine.split(seperator);
-	    double[] attributes = new double[columns.length];
-
-            // TODO: adding attributes to data instance
-	}
-
-        throw new UnsupportedOperationException("Not supported yet.");
     }
 }
