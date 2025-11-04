@@ -1,0 +1,17 @@
+de/jmale/core/data/DataInstance.class
+de/jmale/core/observability/OpenTelemetryConfig.class
+de/jmale/core/package-info.class
+de/jmale/core/data/SimpleDataInstance.class
+de/jmale/core/tools/FileImporter.class
+de/jmale/core/data/package-info.class
+de/jmale/core/observability/HealthCheck.class
+de/jmale/core/observability/MetricsCollector.class
+de/jmale/core/observability/package-info.class
+de/jmale/core/tools/CSVFileImporter.class
+de/jmale/core/observability/HealthCheck$Status.class
+de/jmale/core/observability/HealthCheck$HealthResult.class
+de/jmale/core/App.class
+de/jmale/core/data/SimpleDataSet.class
+de/jmale/core/data/DataSet.class
+de/jmale/core/observability/TracingUtils.class
+de/jmale/core/tools/package-info.class

@@ -1,0 +1,6 @@
+2025-11-04 09:54:00.591 [de.jmale.core.App.main()] INFO  [,] de.jmale.core.App - jMaLe application starting up
+2025-11-04 09:54:00.601 [de.jmale.core.App.main()] INFO  [,] de.jmale.core.App - Hello World from jMaLe!
+2025-11-04 09:54:00.602 [de.jmale.core.App.main()] INFO  [,] d.j.core.observability.HealthCheck - Performing application health check
+2025-11-04 09:54:00.602 [de.jmale.core.App.main()] INFO  [,] d.j.core.observability.HealthCheck - Health check completed with status: HEALTHY
+2025-11-04 09:54:00.603 [de.jmale.core.App.main()] INFO  [,] de.jmale.core.App - Application health status: HEALTHY
+2025-11-04 09:54:00.618 [de.jmale.core.App.main()] INFO  [,] de.jmale.core.App - jMaLe application completed successfully
