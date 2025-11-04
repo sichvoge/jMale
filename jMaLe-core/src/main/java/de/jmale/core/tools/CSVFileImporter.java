@@ -3,6 +3,13 @@ package de.jmale.core.tools;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import de.jmale.core.data.DataSet;
+import de.jmale.core.observability.MetricsCollector;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import java.io.*;
 
 /**
@@ -16,6 +23,9 @@ import java.io.*;
  * @since 1.0
  */
 public class CSVFileImporter implements FileImporter {
+    private static final Logger logger = LoggerFactory.getLogger(CSVFileImporter.class);
+    private static final Tracer tracer = GlobalOpenTelemetry.getTracer("jmale.csv.importer");
+
     /**
      * Default seperator used to split the attributes in a CSV file.
      */
@@ -78,11 +88,50 @@ public class CSVFileImporter implements FileImporter {
      *  empty
      */
     public final DataSet doImport(String filename) throws IOException {
-        if(Strings.isNullOrEmpty(filename)) {
-            throw new IllegalArgumentException("filename cannot be empty nor null");
-        }
+        long startTime = System.currentTimeMillis();
+        Span span = tracer.spanBuilder("csv.import.by_filename")
+            .setAttribute("file.name", filename != null ? filename : "null")
+            .startSpan();
 
-        return this.doImport(new File(filename));
+        try {
+            MDC.put("operation", "csv.import");
+            MDC.put("file.name", filename);
+
+            logger.debug("Starting CSV import from filename: {}", filename);
+
+            if(Strings.isNullOrEmpty(filename)) {
+                logger.error("CSV import failed: filename is null or empty");
+                throw new IllegalArgumentException("filename cannot be empty nor null");
+            }
+
+            DataSet result = this.doImport(new File(filename));
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("CSV import completed successfully in {} ms", duration);
+
+            try {
+                MetricsCollector.getInstance().recordOperation("csv.import", duration);
+            } catch (IllegalStateException e) {
+                logger.debug("MetricsCollector not initialized, skipping metrics recording");
+            }
+
+            return result;
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("CSV import failed after {} ms", duration, e);
+            span.recordException(e);
+
+            try {
+                MetricsCollector.getInstance().recordError("csv.import", duration, e.getClass().getSimpleName());
+            } catch (IllegalStateException ex) {
+                logger.debug("MetricsCollector not initialized, skipping error metrics recording");
+            }
+
+            throw e;
+        } finally {
+            span.end();
+            MDC.clear();
+        }
     }
 
     /**
@@ -95,31 +144,79 @@ public class CSVFileImporter implements FileImporter {
      * @throws NullPointerException will be thrown if parameter is not provided
      */
     public final DataSet doImport(File file) throws IOException {
-        Preconditions.checkNotNull(file);
+        long startTime = System.currentTimeMillis();
+        Span span = tracer.spanBuilder("csv.import.by_file")
+            .setAttribute("file.path", file != null ? file.getAbsolutePath() : "null")
+            .startSpan();
 
-        if(!file.exists()) {
-            throw new FileNotFoundException("file " + file.getName() + " not found");
+        try {
+            MDC.put("operation", "csv.import");
+            MDC.put("file.path", file.getAbsolutePath());
+
+            logger.debug("Starting CSV import from file: {}", file.getAbsolutePath());
+
+            Preconditions.checkNotNull(file);
+
+            if(!file.exists()) {
+                logger.error("CSV import failed: file not found - {}", file.getName());
+                throw new FileNotFoundException("file " + file.getName() + " not found");
+            }
+
+            if(!file.isFile()) {
+                logger.error("CSV import failed: provided path is not a file - {}", file.getAbsolutePath());
+                throw new java.io.IOException("provided file is not a file");
+            }
+
+            span.setAttribute("file.size", file.length());
+            logger.debug("Processing CSV file of size {} bytes", file.length());
+
+            FileInputStream fstream = new FileInputStream(file);
+            DataInputStream in = new DataInputStream(fstream);
+            BufferedReader br = new BufferedReader(new InputStreamReader(in));
+
+            boolean ignoreFirstLine = withHeader;
+            int lineCount = 0;
+
+            String strLine;
+            while ((strLine = br.readLine()) != null)   {
+                lineCount++;
+                String[] columns = strLine.split(seperator);
+                double[] attributes = new double[columns.length];
+
+                // TODO: adding attributes to data instance
+                logger.trace("Processing line {}: {} columns", lineCount, columns.length);
+            }
+
+            br.close();
+            in.close();
+            fstream.close();
+
+            span.setAttribute("lines.processed", lineCount);
+            logger.debug("Processed {} lines from CSV file", lineCount);
+
+            try {
+                MetricsCollector.getInstance().recordDataProcessed("csv.import", lineCount);
+            } catch (IllegalStateException e) {
+                logger.debug("MetricsCollector not initialized, skipping data metrics recording");
+            }
+
+            throw new UnsupportedOperationException("Not supported yet.");
+
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("CSV import failed after {} ms", duration, e);
+            span.recordException(e);
+
+            try {
+                MetricsCollector.getInstance().recordError("csv.import", duration, e.getClass().getSimpleName());
+            } catch (IllegalStateException ex) {
+                logger.debug("MetricsCollector not initialized, skipping error metrics recording");
+            }
+
+            throw e;
+        } finally {
+            span.end();
+            MDC.clear();
         }
-
-        if(!file.isFile()) {
-            throw new java.io.IOException("provided file is not a file");
-        }
-
-        FileInputStream fstream = new FileInputStream(file);
-
-	DataInputStream in = new DataInputStream(fstream);
-	BufferedReader br = new BufferedReader(new InputStreamReader(in));
-
-	boolean ignoreFirstLine = withHeader;
-
-        String strLine;
-	while ((strLine = br.readLine()) != null)   {
-            String[] columns = strLine.split(seperator);
-	    double[] attributes = new double[columns.length];
-
-            // TODO: adding attributes to data instance
-	}
-
-        throw new UnsupportedOperationException("Not supported yet.");
     }
 }
